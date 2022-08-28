@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
@@ -11,6 +11,7 @@ using ExileCore.Shared.Enums;
 using ExileCore.Shared.Helpers;
 using SharpDX;
 using Vector2 = System.Numerics.Vector2;
+
 // ReSharper disable CollectionNeverUpdated.Local
 
 namespace ProximityAlert
@@ -51,7 +52,7 @@ namespace ProximityAlert
             phi += Math.PI * 0.25; // fix rotation due to projection
             if (phi > 2 * Math.PI) phi -= 2 * Math.PI;
 
-            var xSprite = (float) Math.Round(phi / Math.PI * 32);
+            var xSprite = (float)Math.Round(phi / Math.PI * 32);
             if (xSprite >= 64) xSprite = 0;
 
             float ySprite = distance > 60 ? distance > 120 ? 2 : 1 : 0;
@@ -71,7 +72,7 @@ namespace ProximityAlert
             return File.ReadAllLines(path).Where(line => !string.IsNullOrWhiteSpace(line)
                                                          && line.IndexOf(';') >= 0
                                                          && !line.StartsWith("#")).Select(line =>
-                line.Split(new[] {';'}, 5).Select(parts => parts.Trim()).ToArray());
+                line.Split(new[] { ';' }, 5).Select(parts => parts.Trim()).ToArray());
         }
 
         private static Color HexToColor(string value)
@@ -88,7 +89,7 @@ namespace ProximityAlert
                 var distance = -1;
                 if (int.TryParse(line[3], out var tmp)) distance = tmp;
                 var preloadAlertConfigLine = new Warning
-                    {Text = line[1], Color = HexToColor(line[2]), Distance = distance, SoundFile = line[4]};
+                    { Text = line[1], Color = HexToColor(line[2]), Distance = distance, SoundFile = line[4] };
                 return preloadAlertConfigLine;
             });
         }
@@ -136,19 +137,21 @@ namespace ProximityAlert
                         var mods = entity.GetComponent<ObjectMagicProperties>().Mods;
                         if (mods != null)
                         {
-                            var modMatch = mods.FirstOrDefault(x => _modDict.ContainsKey(x));
-                            var filter = _modDict[modMatch ?? string.Empty];
-                            if (filter != null)
+                            for (var index = 0; index < mods.Count; index++)
                             {
-                                entity.SetHudComponent(new ProximityAlert(entity, filter.Color));
+                                var mod = mods[index];
+                                if (!_modDict.ContainsKey(mod))
+                                    continue;
+                                var filter = _modDict[mod];
+                                var comp = entity.GetHudComponent<ProximityAlert>();
+                                if (comp == null)
+                                    comp = new ProximityAlert(entity);
+                                comp.Add(filter.Text, filter.Color);
+                                entity.SetHudComponent(comp);
                                 lock (Locker)
                                 {
                                     PlaySound(filter.SoundFile);
                                 }
-                            }
-                            else
-                            {
-                                return;
                             }
                         }
                     }
@@ -183,7 +186,7 @@ namespace ProximityAlert
             try
             {
                 _playSounds = Settings.PlaySounds;
-                var height = (float) int.Parse(Settings.Font.Value.Substring(Settings.Font.Value.Length - 2));
+                var height = (float)int.Parse(Settings.Font.Value.Substring(Settings.Font.Value.Length - 2));
                 height = height * Settings.Scale;
                 var margin = height / Settings.Scale / 4;
 
@@ -212,7 +215,8 @@ namespace ProximityAlert
                             GameController.Game.IngameState.Camera.WorldToScreen(GameController.Player.Pos);
                         Graphics.DrawLine(playerPosition, entityScreenPos, 4, new Color(255, 0, 255, 140));
 
-                        Graphics.DrawText(sEnt.DistancePlayer.ToString(CultureInfo.InvariantCulture), new SharpDX.Vector2(0, 0));
+                        Graphics.DrawText(sEnt.DistancePlayer.ToString(CultureInfo.InvariantCulture),
+                            new SharpDX.Vector2(0, 0));
                     }
 
                 var unopened = "";
@@ -227,7 +231,7 @@ namespace ProximityAlert
                     // skip white mobs
                     if (entity.Rarity == MonsterRarity.White) continue;
                     var structValue = entity.GetHudComponent<ProximityAlert>();
-                    if (structValue == null || !entity.IsAlive || structValue.Name == string.Empty) continue;
+                    if (structValue == null || !entity.IsAlive || structValue.Count == 0) continue;
                     var delta = entity.GridPos - GameController.Player.GridPos;
                     var distance = delta.GetPolarCoordinates(out var phi);
 
@@ -235,15 +239,19 @@ namespace ProximityAlert
                         origin.Y - margin / 2 - height - lines * height, height, height);
                     var rectUV = Get64DirectionsUV(phi, distance, 3);
 
-                    if (!mods.Contains(structValue.Name))
+                    for (var index = 0; index < structValue.Warnings.Count; index++)
                     {
-                        mods += structValue.Name;
-                        lines++;
-                        Graphics.DrawText(structValue.Name,
-                            new Vector2(origin.X + height / 2, origin.Y - lines * height), structValue.Color, 10,
-                            Settings.Font.Value);
-                        // Graphics.DrawText(structValue.Name, new System.Numerics.Vector2(origin.X + 4, origin.Y - (lines * 15)), structValue.Color, 10, "FrizQuadrataITC:15", FontAlign.Left);
-                        Graphics.DrawImage("Direction-Arrow.png", rectDirection, rectUV, structValue.Color);
+                        var warning = structValue.Warnings[index];
+                        if (!mods.Contains(warning.Item1))
+                        {
+                            mods += warning.Item1;
+                            lines++;
+                            Graphics.DrawText(warning.Item1,
+                                new Vector2(origin.X + height / 2, origin.Y - lines * height), warning.Item2, 10,
+                                Settings.Font.Value);
+                            // Graphics.DrawText(structValue.Name, new System.Numerics.Vector2(origin.X + 4, origin.Y - (lines * 15)), structValue.Color, 10, "FrizQuadrataITC:15", FontAlign.Left);
+                            Graphics.DrawImage("Direction-Arrow.png", rectDirection, rectUV, warning.Item2);
+                        }
                     }
                 }
 
@@ -274,16 +282,23 @@ namespace ProximityAlert
                     if (ePath.Contains("@")) ePath = ePath.Split('@')[0];
                     // Hud component check
                     var structValue = entity.GetHudComponent<ProximityAlert>();
-                    if (structValue != null && !mods.Contains(structValue.Name))
+                    if (structValue != null && structValue.Count > 0)
                     {
-                        mods += structValue.Name;
-                        lines++;
-                        Graphics.DrawText(structValue.Name,
-                            new Vector2(origin.X + height / 2, origin.Y - lines * height), structValue.Color, 10,
-                            Settings.Font.Value);
-                        // Graphics.DrawText(structValue.Name, new System.Numerics.Vector2(origin.X + 4, origin.Y - (lines * 15)), structValue.Color, 10, "FrizQuadrataITC:15", FontAlign.Left);
-                        Graphics.DrawImage("Direction-Arrow.png", rectDirection, rectUV, structValue.Color);
-                        match = true;
+                        for (var index = 0; index < structValue.Warnings.Count; index++)
+                        {
+                            var warning = structValue.Warnings[index];
+                            if (!mods.Contains(warning.Item1))
+                            {
+                                mods += warning.Item1;
+                                lines++;
+                                Graphics.DrawText(warning.Item1,
+                                    new Vector2(origin.X + height / 2, origin.Y - lines * height), warning.Item2, 10,
+                                    Settings.Font.Value);
+                                // Graphics.DrawText(structValue.Name, new System.Numerics.Vector2(origin.X + 4, origin.Y - (lines * 15)), structValue.Color, 10, "FrizQuadrataITC:15", FontAlign.Left);
+                                Graphics.DrawImage("Direction-Arrow.png", rectDirection, rectUV, warning.Item2);
+                                match = true;
+                            }
+                        }
                     }
 
                     // Contains Check
@@ -406,18 +421,18 @@ namespace ProximityAlert
 
         private class ProximityAlert
         {
-            public ProximityAlert(Entity entity, Color color)
+            public ProximityAlert(Entity entity)
             {
                 Entity = entity;
-                Color = color;
-                Name = string.Empty;
                 PlayWarning = true;
+                Warnings = new List<ValueTuple<string, Color>>();
             }
 
             private Entity Entity { get; }
-            public string Name { get; private set; }
-            public Color Color { get; private set; }
+            public IList<ValueTuple<string, Color>> Warnings { get; private set; }
             private bool PlayWarning { get; set; }
+
+            public int Count => Warnings.Count;
 
             public void Update()
             {
@@ -425,18 +440,46 @@ namespace ProximityAlert
                 if (!Entity.HasComponent<ObjectMagicProperties>() || !Entity.IsAlive) return;
                 var mods = Entity.GetComponent<ObjectMagicProperties>()?.Mods;
                 if (mods == null || mods.Count <= 0) return;
-                var modMatch = mods.FirstOrDefault(x => _modDict.ContainsKey(x));
-                var filter = _modDict[modMatch ?? string.Empty];
-                if (filter == null) return;
-                Name = filter.Text;
-                Color = filter.Color;
-                if (PlayWarning)
-                    lock (Locker)
-                    {
-                        PlaySound(filter.SoundFile);
-                    }
+                var soundPath = string.Empty;
+                for (var index = 0; index < mods.Count; index++)
+                {
+                    var mod = mods[index];
+                    if (!_modDict.ContainsKey(mod))
+                        continue;
+                    var filter = _modDict[mod];
+                    var comp = Entity.GetHudComponent<ProximityAlert>();
+                    if (comp == null)
+                        comp = new ProximityAlert(Entity);
+                    comp.Add(filter.Text, filter.Color);
+                    Entity.SetHudComponent(comp);
+                    if (PlayWarning)
+                        lock (Locker)
+                        {
+                            PlaySound(filter.SoundFile);
+                        }
+                }
 
                 PlayWarning = false;
+            }
+
+            public bool Add(string alert, Color alertColor)
+            {
+                if (string.IsNullOrWhiteSpace(alert))
+                    return false;
+                if (Warnings.Any(x => x.Item1.Equals(alert, StringComparison.OrdinalIgnoreCase)))
+                    return false;
+                Warnings.Add(new ValueTuple<string, Color>(alert, alertColor));
+                return true;
+            }
+
+            public bool Remove(string alert)
+            {
+                if (string.IsNullOrWhiteSpace(alert))
+                    return false;
+                var t = Warnings.FirstOrDefault(x => x.Item1.Equals(alert, StringComparison.OrdinalIgnoreCase));
+                if (string.IsNullOrEmpty(t.Item1)) return false;
+                Warnings.Remove(t);
+                return true;
             }
         }
 
