@@ -295,10 +295,10 @@ namespace ProximityAlert
                                     new Vector2(origin.X + height / 2, origin.Y - lines * height), warning.Item2, 10,
                                     Settings.Font.Value);
                                 // Graphics.DrawText(structValue.Name, new System.Numerics.Vector2(origin.X + 4, origin.Y - (lines * 15)), structValue.Color, 10, "FrizQuadrataITC:15", FontAlign.Left);
-                                Graphics.DrawImage("Direction-Arrow.png", rectDirection, rectUV, warning.Item2);
                                 match = true;
                             }
                         }
+                        Graphics.DrawImage("Direction-Arrow.png", rectDirection, rectUV, warning.Item2);
                     }
 
                     // Contains Check
